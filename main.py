@@ -2145,4 +2145,14 @@ if __name__ == "__main__":
             port=port,
             workers=MAX_WORKERS,
             access_log=False,
-            log_
+            log_level="info"
+        )
+    else:
+        # Development settings
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            reload=True,
+            log_level="debug"
+        )
