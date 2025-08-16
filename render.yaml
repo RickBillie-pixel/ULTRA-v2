@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: combined-website-analyzer-pooled
+    name: combined-website-analyzer
     runtime: docker
     plan: starter  # Can upgrade to standard/pro for better performance
     region: oregon  # or: frankfurt, singapore, ohio
@@ -15,25 +15,20 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: API_VERSION
-        value: "4.1.1"  # Updated for browser pool version
+        value: "4.1.0"
       - key: MAX_WORKERS
         value: "1"
       - key: TIMEOUT_SECONDS
         value: "300"
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /ms-playwright
-      # Browser pool specific settings
-      - key: MAX_BROWSER_POOL_SIZE
-        value: "2"
-      - key: MEMORY_CLEANUP_INTERVAL
-        value: "5"
       # Google API Keys - ADD THESE VIA RENDER DASHBOARD (NOT HERE!)
       # - key: PSI_API_KEY
       #   value: YOUR_PAGESPEED_INSIGHTS_API_KEY
       # - key: CRUX_API_KEY  
       #   value: YOUR_CHROME_UX_REPORT_API_KEY
     
-    # Health check endpoint - adjusted for browser pool startup time
+    # Health check endpoint
     healthCheckPath: /health
     
     # Auto-deploy settings
@@ -46,12 +41,7 @@ services:
       - requirements.txt
       - Dockerfile
       - render.yaml
-    
-    # Resource settings optimized for browser pool
-    disk:
-      name: analyzer-disk
-      sizeGB: 2  # Extra space for browser cache
-      mountPath: /tmp/browser-cache  # Required mountPath for disk
+      - .env
 
 # Optional: Add a Redis cache for caching analysis results (requires paid plan)
 # - type: redis
