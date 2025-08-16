@@ -1,1 +1,64 @@
+services:
+  - type: web
+    name: combined-website-analyzer-pooled
+    runtime: docker
+    plan: starter  # Can upgrade to standard/pro for better performance
+    region: oregon  # or: frankfurt, singapore, ohio
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    
+    # Environment variables
+    envVars:
+      - key: PYTHONPATH
+        value: /app
+      - key: ENVIRONMENT
+        value: production
+      - key: API_VERSION
+        value: "4.1.1"  # Updated for browser pool version
+      - key: MAX_WORKERS
+        value: "1"
+      - key: TIMEOUT_SECONDS
+        value: "300"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /ms-playwright
+      # Browser pool specific settings
+      - key: MAX_BROWSER_POOL_SIZE
+        value: "2"
+      - key: MEMORY_CLEANUP_INTERVAL
+        value: "5"
+      # Google API Keys - ADD THESE VIA RENDER DASHBOARD (NOT HERE!)
+      # - key: PSI_API_KEY
+      #   value: YOUR_PAGESPEED_INSIGHTS_API_KEY
+      # - key: CRUX_API_KEY  
+      #   value: YOUR_CHROME_UX_REPORT_API_KEY
+    
+    # Health check endpoint - adjusted for browser pool startup time
+    healthCheckPath: /health
+    
+    # Auto-deploy settings
+    autoDeploy: true
+    
+    # Build settings
+    buildFilter:
+      paths:
+      - main.py
+      - requirements.txt
+      - Dockerfile
+      - render.yaml
+    
+    # Resource settings optimized for browser pool
+    disk:
+      name: analyzer-disk
+      sizeGB: 2  # Extra space for browser cache
+    
+    # Scaling settings for browser pool
+    scaling:
+      minInstances: 1
+      maxInstances: 1  # Keep at 1 for consistent browser pool
 
+# Optional: Add a Redis cache for caching analysis results (requires paid plan)
+# - type: redis
+#   name: analyzer-cache
+#   plan: starter
+#   maxmemoryPolicy: allkeys-lru
