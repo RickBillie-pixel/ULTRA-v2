@@ -51,11 +51,7 @@ services:
     disk:
       name: analyzer-disk
       sizeGB: 2  # Extra space for browser cache
-    
-    # Scaling settings for browser pool
-    scaling:
-      minInstances: 1
-      maxInstances: 1  # Keep at 1 for consistent browser pool
+      mountPath: /tmp/browser-cache  # Required mountPath for disk
 
 # Optional: Add a Redis cache for caching analysis results (requires paid plan)
 # - type: redis
