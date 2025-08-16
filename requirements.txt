@@ -1,34 +1,14 @@
-# FastAPI and ASGI server
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-
-# Data validation and serialization
 pydantic==2.5.0
-
-# HTTP clients and networking
 aiohttp==3.9.1
-httpx==0.25.2
-
-# HTML parsing and web scraping
 beautifulsoup4==4.12.2
-lxml>=4.9.3
-
-# Browser automation with memory optimizations
 playwright==1.40.0
-
-# File handling and multipart support
+lxml>=4.9.3
+httpx==0.25.2
 python-multipart==0.0.6
 aiofiles>=23.2.0
-
-# JSON handling (faster than stdlib)
 orjson>=3.9.0
-
-# Event loop optimizations
-uvloop==0.19.0; sys_platform != "win32"
+uvloop==0.19.0
 httptools==0.6.1
-
-# Caching for performance
 cachetools==5.3.2
-
-# Memory management and garbage collection (implicit via gc module)
-# Note: gc is built-in, no additional package needed
