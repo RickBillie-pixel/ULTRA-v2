@@ -632,6 +632,9 @@ class CombinedWebsiteAnalyzer:
             # Generate combined summary
             result["summary"] = self._generate_combined_summary(result)
             
+            # Clean result for JSON serialization
+            result = self._clean_for_json(result)
+            
             logger.info(f"Combined analysis completed in {processing_time}s")
             return result
             
