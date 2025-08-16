@@ -1,7 +1,7 @@
 """
 Combined Ultimate Website Analyzer API v4.1
 Combines structured + detailed analysis + REAL Google Core Web Vitals
-WITH BROWSER POOL MANAGEMENT FOR SEQUENTIAL SCANS
+WITH FIXED BROWSER MANAGEMENT FOR SEQUENTIAL SCANS
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -358,65 +358,29 @@ async def get_real_core_web_vitals(url: str, device: str = "mobile", use_origin_
     return result
 
 # =====================
-# BROWSER POOL MANAGER
+# FIXED BROWSER MANAGER
 # =====================
 
-class BrowserPoolManager:
-    """Browser pool manager for efficient resource usage across sequential scans"""
+class FixedBrowserManager:
+    """Fixed browser manager - creates fresh browser every 2 requests"""
     
-    def __init__(self, max_browsers: int = 2):
-        self._max_browsers = max_browsers
-        self._browsers = []
-        self._available_browsers = []
+    def __init__(self):
+        self._browser = None
         self._playwright = None
         self._request_count = 0
-        self._semaphore = asyncio.Semaphore(max_browsers)  # Limit concurrent usage
         self._lock = asyncio.Lock()
     
-    async def _ensure_playwright(self):
-        """Ensure playwright is started"""
-        if self._playwright is None:
-            self._playwright = await async_playwright().start()
-            logger.info("Playwright started for browser pool")
-    
-    async def _create_browser(self):
-        """Create a new browser instance"""
-        await self._ensure_playwright()
-        browser = await self._playwright.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--no-zygote',
-                '--disable-blink-features=AutomationControlled',
-                '--memory-pressure-off',
-                '--max-old-space-size=256',  # Reduced memory limit
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                '--disable-web-security',  # For better compatibility
-                '--disable-features=VizDisplayCompositor'  # Reduce resource usage
-            ]
-        )
-        logger.info("New browser created in pool")
-        return browser
-    
     async def get_context(self, viewport=None, user_agent=None):
-        """Get a browser context from the pool"""
-        async with self._semaphore:  # Limit concurrent usage
-            async with self._lock:
-                # Try to get an available browser
-                if self._available_browsers:
-                    browser = self._available_browsers.pop()
-                elif len(self._browsers) < self._max_browsers:
-                    # Create new browser if under limit
-                    browser = await self._create_browser()
-                    self._browsers.append(browser)
-                else:
-                    # Wait for a browser to become available (shouldn't happen with semaphore)
-                    browser = self._browsers[0]  # Use first browser as fallback
-                
-                # Create context
-                context = await browser.new_context(
+        """Get browser context with fresh browser every 2 requests"""
+        async with self._lock:
+            self._request_count += 1
+            
+            # Create fresh browser every 2 requests OR if browser is None
+            if self._browser is None or self._request_count % 2 == 0:
+                await self._recreate_browser()
+            
+            try:
+                context = await self._browser.new_context(
                     viewport=viewport or {'width': 1366, 'height': 768},
                     user_agent=user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     extra_http_headers={
@@ -427,55 +391,81 @@ class BrowserPoolManager:
                         'Pragma': 'no-cache'
                     }
                 )
-                
-                # Track request count for memory cleanup
-                self._request_count += 1
-                
-                return context, browser
+                return context
+            except Exception as e:
+                logger.warning(f"Context creation failed, recreating browser: {e}")
+                await self._recreate_browser()
+                context = await self._browser.new_context(
+                    viewport=viewport or {'width': 1366, 'height': 768},
+                    user_agent=user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                )
+                return context
     
-    async def return_browser(self, browser, context):
-        """Return browser to pool after closing context"""
+    async def _recreate_browser(self):
+        """Recreate browser completely"""
         try:
-            # Close the context but keep the browser
+            # Close existing browser
+            if self._browser:
+                await self._browser.close()
+                await asyncio.sleep(0.5)  # Give it time to close
+            
+            # Close existing playwright
+            if self._playwright:
+                await self._playwright.stop()
+                await asyncio.sleep(0.5)
+            
+            # Force garbage collection
+            gc.collect()
+            
+            # Create fresh playwright and browser
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-zygote',
+                    '--disable-blink-features=AutomationControlled',
+                    '--memory-pressure-off',
+                    '--max-old-space-size=256',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                ]
+            )
+            logger.info(f"Fresh browser created for request #{self._request_count}")
+            
+        except Exception as e:
+            logger.error(f"Browser recreation failed: {e}")
+            raise
+    
+    async def close_context(self, context):
+        """Close context and cleanup"""
+        try:
             if context and hasattr(context, 'close'):
                 await context.close()
+                await asyncio.sleep(0.2)  # Give context time to close
             
-            async with self._lock:
-                # Return browser to available pool
-                if browser in self._browsers and browser not in self._available_browsers:
-                    self._available_browsers.append(browser)
+            # Memory cleanup every request
+            gc.collect()
                 
-                # Memory cleanup every 5 requests
-                if self._request_count % 5 == 0:
-                    logger.info(f"Performing memory cleanup after {self._request_count} requests")
-                    gc.collect()  # Force garbage collection
-                    
         except Exception as e:
-            logger.warning(f"Error returning browser to pool: {e}")
+            logger.warning(f"Error closing context: {e}")
     
-    async def close_all(self):
-        """Close all browsers and cleanup"""
-        async with self._lock:
-            for browser in self._browsers:
-                try:
-                    await browser.close()
-                except Exception as e:
-                    logger.warning(f"Error closing browser: {e}")
-            
-            self._browsers.clear()
-            self._available_browsers.clear()
-            
+    async def close(self):
+        """Close browser and playwright"""
+        try:
+            if self._browser:
+                await self._browser.close()
+                self._browser = None
             if self._playwright:
-                try:
-                    await self._playwright.stop()
-                except Exception as e:
-                    logger.warning(f"Error stopping playwright: {e}")
+                await self._playwright.stop()
                 self._playwright = None
-            
-            logger.info("All browsers closed and playwright stopped")
+            logger.info("Browser manager closed")
+        except Exception as e:
+            logger.warning(f"Error closing browser manager: {e}")
 
-# Global browser pool manager
-browser_pool = BrowserPoolManager(max_browsers=2)
+# Global browser manager
+browser_manager = FixedBrowserManager()
 
 # =====================
 # COMBINED ANALYZER SERVICE
@@ -492,16 +482,15 @@ class CombinedWebsiteAnalyzer:
         start_time = time.time()
         
         context = None
-        browser = None
         page = None
         
         try:
             logger.info(f"Starting combined analysis for: {url}")
             
-            # Get browser context from pool
+            # Get browser context
             viewport = {'width': 1920 if options.device == Device.desktop else 390, 
                        'height': 1080 if options.device == Device.desktop else 844}
-            context, browser = await browser_pool.get_context(viewport=viewport)
+            context = await browser_manager.get_context(viewport=viewport)
             page = await context.new_page()
             
             # Navigate to page
@@ -632,9 +621,6 @@ class CombinedWebsiteAnalyzer:
             # Generate combined summary
             result["summary"] = self._generate_combined_summary(result)
             
-            # Clean result for JSON serialization
-            result = self._clean_for_json(result)
-            
             logger.info(f"Combined analysis completed in {processing_time}s")
             return result
             
@@ -647,11 +633,10 @@ class CombinedWebsiteAnalyzer:
                 'processing_time': time.time() - start_time
             }
         finally:
-            # Close page but return browser to pool
             if page and not page.is_closed():
                 await page.close()
-            if context and browser:
-                await browser_pool.return_browser(browser, context)
+            if context:
+                await browser_manager.close_context(context)
     
     async def _navigate_with_retry(self, page, url):
         """Navigate with retry logic"""
@@ -2008,7 +1993,7 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "version": API_VERSION,
         "environment": ENVIRONMENT,
-        "features": "Combined structured + detailed analysis with browser pool management"
+        "features": "Combined structured + detailed analysis with fixed browser management"
     }
 
 @app.post("/analyze/combined")
@@ -2062,17 +2047,17 @@ async def analyze_website_combined_get(url: str):
 @app.get("/")
 async def root():
     return {
-        "message": "Combined Ultimate Website Analyzer API with Browser Pool Management",
+        "message": "Combined Ultimate Website Analyzer API with Fixed Browser Management",
         "version": API_VERSION,
         "environment": ENVIRONMENT,
         "status": "operational",
-        "description": "Complete website analysis combining both structured metrics AND detailed content analysis with optimized browser pool for sequential scans",
+        "description": "Complete website analysis combining both structured metrics AND detailed content analysis with optimized browser management for sequential scans",
         "enhancements": [
-            "🔧 Browser Pool Management for efficient resource usage",
-            "⚡ Semaphore limiting (max 2 concurrent browsers)",
-            "🧹 Automatic memory cleanup every 5 requests",
-            "🔄 Browser reuse across multiple sequential scans",
-            "📊 Reduced memory footprint and improved performance"
+            "🔧 Fixed Browser Management for efficient resource usage",
+            "🧹 Automatic memory cleanup and browser recreation",
+            "🔄 Fresh browser every 2 requests",
+            "📊 Reduced memory footprint and improved stability",
+            "⚡ Optimized for 5+ sequential scans"
         ],
         "features": [
             "🚀 Performance Analysis (Core Web Vitals, Resource Analysis)",
@@ -2104,8 +2089,8 @@ async def root():
         "limits": {
             "timeout_seconds": TIMEOUT_SECONDS,
             "max_workers": MAX_WORKERS,
-            "max_concurrent_browsers": 2,
-            "memory_cleanup_interval": "Every 5 requests"
+            "browser_recreation_interval": "Every 2 requests",
+            "memory_cleanup": "Every request"
         }
     }
 
@@ -2115,21 +2100,21 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize browser pool on startup"""
-    logger.info("Combined Ultimate Website Analyzer API with Browser Pool starting up...")
+    """Initialize browser on startup"""
+    logger.info("Combined Ultimate Website Analyzer API with Fixed Browser Management starting up...")
     try:
-        # Pre-initialize one browser for faster first request
-        context, browser = await browser_pool.get_context()
-        await browser_pool.return_browser(browser, context)
-        logger.info("Browser pool initialized successfully")
+        # Pre-initialize browser for faster first request
+        context = await browser_manager.get_context()
+        await browser_manager.close_context(context)
+        logger.info("Browser manager initialized successfully")
     except Exception as e:
-        logger.error(f"Browser pool initialization failed: {e}")
+        logger.error(f"Browser manager initialization failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup resources on shutdown"""
     logger.info("Shutting down Combined Ultimate Website Analyzer API...")
-    await browser_pool.close_all()
+    await browser_manager.close()
     # Force final garbage collection
     gc.collect()
     logger.info("Cleanup completed")
