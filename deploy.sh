@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Website Analyzer API with Browser Pool Management - Deployment Script for Render
+# Website Analyzer API Deployment Script for Render
 # Make sure this file is executable: chmod +x deploy.sh
 
-echo "🚀 Starting Website Analyzer API with Browser Pool Deployment..."
+echo "🚀 Starting Website Analyzer API Deployment..."
 
 # Check if all required files exist
 required_files=("main.py" "requirements.txt" "Dockerfile" "render.yaml")
@@ -30,10 +30,10 @@ echo "✅ Python syntax is valid"
 # Test local Docker build (optional)
 if command -v docker &> /dev/null; then
     echo "🐳 Testing Docker build locally..."
-    docker build -t website-analyzer-pooled-test .
+    docker build -t website-analyzer-test .
     if [[ $? -eq 0 ]]; then
         echo "✅ Docker build successful"
-        docker rmi website-analyzer-pooled-test
+        docker rmi website-analyzer-test
     else
         echo "❌ Docker build failed"
         exit 1
@@ -104,7 +104,7 @@ if git diff --staged --quiet; then
     echo "ℹ️  No changes to commit"
 else
     # Commit changes
-    git commit -m "Deploy Website Analyzer API v4.1.1 with Browser Pool Management - $(date '+%Y-%m-%d %H:%M:%S')"
+    git commit -m "Deploy Website Analyzer API v2.0.0 with Browser Pool - $(date '+%Y-%m-%d %H:%M:%S')"
     echo "✅ Changes committed"
 fi
 
@@ -123,17 +123,16 @@ echo "   git push -u origin main"
 echo ""
 echo "📊 API Endpoints after deployment:"
 echo "   GET  / - API documentation"
-echo "   GET  /analyze/{url} - Quick website analysis" 
-echo "   POST /analyze/combined - Full analysis with browser pool optimization"
+echo "   GET  /analyze/{url} - Quick website analysis"
+echo "   POST /analyze - Full analysis with options"
 echo ""
 echo "💡 Example usage:"
-echo "   curl https://your-app.onrender.com/analyze/combined/google.com"
+echo "   curl https://your-app.onrender.com/analyze/google.com"
 echo ""
 echo "🔧 Browser Pool Features:"
-echo "   • Max 2 concurrent browsers for efficiency"
-echo "   • Browser reuse across sequential scans"
-echo "   • Automatic memory cleanup every 5 requests"
-echo "   • Optimized for 5+ sequential scans without timeouts"
+echo "   • Supports 5+ sequential scans without timeouts"
+echo "   • Memory efficient browser reuse"
+echo "   • Automatic cleanup every 5 requests"
 echo ""
 
 # Show file structure
